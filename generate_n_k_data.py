@@ -23,15 +23,15 @@ def arg_parser():
     parser = argparse.ArgumentParser("Generate grid data with n-k branches")
 
     parser.add_argument('--seed', type=int, default=42, help="Random seed")
-    parser.add_argument('--k', type=int, default=0, help="Type of topological changes, k=0 means basic topology")
+    parser.add_argument('--k', type=int, default=1, help="Type of topological changes, k=0 means basic topology")
     parser.add_argument('--case', choices=['IEEE39', 'IEEE300'], default='IEEE39', help='IEEE standard system name')
     parser.add_argument('--max_size', type=int, default=100, help="Maximum size of the contingency set")
 
     parser.add_argument('--power_level', type=float, nargs='+',
                         default=[0.8, 0.9, 1.0, 1.1, 1.2], help="power level, i.e., --power_level 0.8 0.9 1.0")
     parser.add_argument('--samples_per_level', type=int, nargs='+',
-                        default=[500, 500, 500, 500, 500], help="sample per level, i.e., --samples_per_level 500 500 500")
-    parser.add_argument('--raw_data_dir', type=str, default="./data/raw", help="Raw data directory")
+                        default=[200, 200, 200, 200, 200], help="sample per level, i.e., --samples_per_level 500 500 500")
+    parser.add_argument('--raw_data_dir', type=str, default="/mnt/data2/luliangyuchen/raw", help="Raw data directory")
     parser.add_argument('--p_rand', type=float, default=0.1,
                         help="Load active power random ratio, uniform in [-p_rand, p_rand]")
     parser.add_argument('--v_rand', type=float, default=0.001,
