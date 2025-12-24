@@ -18,7 +18,7 @@ def arg_parser():
     parser = argparse.ArgumentParser(description="Process raw samples into a dataset.")
 
     # 添加参数
-    parser.add_argument('--raw_root', type=str, default="/mnt/data2/luliangyuchen/raw",
+    parser.add_argument('--raw_root', type=str, default="./data/raw",
                         help="Path to the raw data directory")
     parser.add_argument('--case', type=str,  default="IEEE39", help="The case name (e.g., IEEE39)")
     parser.add_argument('--k', type=int, default=None, help="Topology type to specify")
@@ -27,7 +27,7 @@ def arg_parser():
     parser.add_argument('--max_samples_per_group', type=int, default=None, help="Maximum number of samples per group")
     parser.add_argument('--processors', type=str, nargs='+', default=["meta", "raw_results", "x", "y", "branch_attr", "matrix_attr"],
                         help="List of processors to apply on each sample")
-    parser.add_argument('--save_path', type=str, default="/mnt/data2/luliangyuchen/dataset/ieee39.pkl", help="Path to save the processed dataset")
+    parser.add_argument('--save_path', type=str, default="./data/ieee39.pkl", help="Path to save the processed dataset")
 
     # 解析参数
     return parser.parse_args()

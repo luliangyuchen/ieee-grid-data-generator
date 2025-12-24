@@ -31,7 +31,7 @@ def arg_parser():
                         default=[0.8, 0.9, 1.0, 1.1, 1.2], help="power level, i.e., --power_level 0.8 0.9 1.0")
     parser.add_argument('--samples_per_level', type=int, nargs='+',
                         default=[200, 200, 200, 200, 200], help="sample per level, i.e., --samples_per_level 500 500 500")
-    parser.add_argument('--raw_data_dir', type=str, default="/mnt/data2/luliangyuchen/raw", help="Raw data directory")
+    parser.add_argument('--raw_data_dir', type=str, default="./data/raw", help="Raw data directory")
     parser.add_argument('--p_rand', type=float, default=0.1,
                         help="Load active power random ratio, uniform in [-p_rand, p_rand]")
     parser.add_argument('--v_rand', type=float, default=0.001,
