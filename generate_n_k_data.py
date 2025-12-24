@@ -135,14 +135,14 @@ def dump_pickle(obj: Any, path: str) -> None:
 
 def _fmt_secs(sec: float) -> str:
     if sec < 60:
-        return f"{sec:.2f}s"
+        return f"{sec:.2f} s"
     m = int(sec // 60)
     s = sec - 60 * m
     if m < 60:
-        return f"{m}m{s:05.2f}s"
+        return f"{m} m {s:05.2f} s"
     h = int(m // 60)
     m2 = m - 60 * h
-    return f"{h}h{m2:02d}m{s:05.2f}s"
+    return f"{h} h {m2:02d} m {s:05.2f} s"
 
 def _fmt_msecs(sec: float) -> str:
     """
