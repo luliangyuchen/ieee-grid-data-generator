@@ -1,56 +1,156 @@
 # IEEE Grid Data Generator
 
-`ieee-grid-data-generator` is a modular data generation framework for power system learning tasks.  
-Its primary goal is to convert raw power system cases from different simulation tools (e.g., PyPower, PSASP) into a **unified, model-agnostic dataset scheme**, which can be further transformed into model-ready representations such as graph datasets or vectorized datasets.
-
-This repository focuses on producing **clean, consistent, and reusable scheme-level datasets**, rather than model-specific data structures.
+`ieee-grid-data-generator` is a lightweight toolkit for generating power-system datasets from IEEE test cases. It focuses on producing **clean, consistent raw power-flow samples** and converting them into **model-agnostic records** that downstream ML pipelines can transform into their preferred formats.
 
 ---
 
-## Motivation
+## What this repo does
 
-Learning-based methods for power system analysis often tightly couple:
-- raw simulator data formats,
-- preprocessing and cleaning logic,
-- and model-specific input representations.
+- Generates n-k contingency samples from IEEE cases using PyPower AC power flow.
+- Organizes results into a predictable on-disk layout (`results.pkl` per topology/level).
+- Converts raw samples into a list-of-records dataset via pluggable processors.
 
-Such coupling significantly limits code reuse and makes it difficult to extend pipelines to new data sources or new model architectures.
-
-This project addresses this issue by explicitly separating:
-1. **Source adaptation** (tool-specific),
-2. **Scheme-level dataset construction** (tool- and model-agnostic).
+What it does **not** do:
+- Train models or enforce a graph framework.
+- Perform model-side batching/normalization.
 
 ---
 
-## Project Scope
+## Repository layout
 
-This repository is responsible for:
-- Adapting raw cases from different simulators into a unified scheme
-- Constructing scheme-compliant datasets in PyTorch format
-- Providing a stable intermediate representation for downstream model pipelines
-
-This repository does **not**:
-- implement neural network models,
-- enforce a specific graph framework (PyG, DGL, etc.),
-- perform model-side batching, padding, or normalization.
-
----
-
-## Dataset Scheme Overview
-
-The core output of this project is a **scheme-compliant dataset** represented in PyTorch format.
-
-The dataset serves as an **intermediate representation (IR)** of power system samples and is intentionally designed to be:
-- model-agnostic,
-- source-agnostic,
-- reusable across different learning tasks and architectures.
+```
+.
+├── generate_n_k_data.py      # Generate raw PF samples (n-k contingencies)
+├── build_dataset_from_raw.py # Convert raw samples into dataset records
+├── raw_reader.py             # Read raw results.pkl groups
+├── processors.py             # Feature processors (x/y/branch_attr/matrix_attr)
+└── overview.py               # Topology enumeration + connectivity filtering
+```
 
 ---
 
-## Dataset Format
+## Requirements
 
-The dataset is represented as a Python dictionary:
+- Python 3.9+
+- numpy
+- pypower
+- tqdm
+
+```bash
+pip install numpy pypower tqdm
+```
+
+---
+
+## 1) Generate raw data
+
+This step enumerates (or samples) **connected** topologies, perturbs loads/generators, runs AC PF, and stores results grouped by topology and power level.
+
+```bash
+python generate_n_k_data.py \
+  --case IEEE39 \
+  --k 1 \
+  --max_size 100 \
+  --power_level 0.8 0.9 1.0 1.1 1.2 \
+  --samples_per_level 200 200 200 200 200 \
+  --raw_data_dir ./data/raw
+```
+
+Useful flags:
+- `--keep_failed`: keep failed PF samples instead of dropping them.
+- `--sample_max_tries`: cap sampling attempts when the topology space is truncated.
+- `--preview_topologies`: estimate connected ratio for reporting.
+
+### Output layout
+
+```
+./data/raw/IEEE39/k=1/
+  topo_000000/
+    level_0.800/results.pkl
+    level_0.900/results.pkl
+    ...
+  topo_000001/
+    level_0.800/results.pkl
+    ...
+```
+
+Each `results.pkl` contains:
+- `meta`: case, k, topology id, power level, outage branches, etc.
+- `samples`: list of `{sample_id, success, results}`
+
+---
+
+## 2) Build a dataset
+
+Convert raw groups into a list of records using processors defined in `processors.py`.
+
+```bash
+python build_dataset_from_raw.py \
+  --raw_root ./data/raw \
+  --case IEEE39 \
+  --k 1 \
+  --processors meta raw_results x y branch_attr matrix_attr \
+  --save_path ./data/ieee39_k1.pkl
+```
+
+Optional filters:
+- `--levels 0.9 1.0`
+- `--max_groups 10`
+- `--max_samples_per_group 50`
+
+---
+
+## Dataset format
+
+The dataset is saved as a Python list of records:
 
 ```python
-dataset: Dict[str, List[torch.Tensor]]
+Dataset = List[Dict[str, Any]]
+```
 
+Records are assembled by processors, for example:
+- `meta`: compact metadata per sample
+- `raw_results`: raw PyPower results dict
+- `x`: node features `[p, q, v, θ, bus_type]`
+- `y`: targets `[v, θ, p, q]`
+- `branch_attr`: sparse incidence + branch attributes
+- `matrix_attr`: sparse incidence + electrical matrix attributes
+
+Select processors with `--processors` when running `build_dataset_from_raw.py`.
+
+---
+
+## Custom processors
+
+Add your own processor in `processors.py`:
+
+```python
+from processors import register_processor
+
+@register_processor("my_feature")
+def proc_my_feature(record, group_meta, sample, pkl_path):
+    record["my_feature"] = ...
+```
+
+Then use:
+
+```bash
+python build_dataset_from_raw.py --processors meta my_feature
+```
+
+---
+
+## Topology generation notes
+
+Topology enumeration and connectivity filtering live in `overview.py`:
+- k-branch outage sets are enumerated or sampled.
+- Disconnected topologies are dropped.
+- The generator records outage branch indices per topology.
+
+If the combinatorial space is large, sampling is used up to `--max_size`.
+
+---
+
+## License
+
+MIT (add a `LICENSE` file if needed).
