@@ -92,7 +92,9 @@ class RawReadSpec:
     subdir: Optional[str] = None  # e.g. "pypower_pf_raw_results"
 
     def base_dir(self) -> str:
-        base = os.path.join(self.raw_root, self.case, f"k={self.k}")
+        base = os.path.join(self.raw_root, self.case)
+        if self.k:
+            base = os.path.join(base, f"k={self.k}")
         if self.subdir:
             base = os.path.join(base, self.subdir)
         return base
@@ -101,13 +103,13 @@ class RawReadSpec:
 # ----------------------------
 # Path iterator
 # ----------------------------
-
 def iter_group_pkls(spec: RawReadSpec) -> Iterable[str]:
     """
     Yield matched results.pkl paths under the hierarchical raw directory.
-    Allows filtering by topo and/or level.
+    Allows filtering by topo, level, and k layer.
     """
     base = spec.base_dir()
+    k_dirs = [f"k={spec.k}"] if spec.k else ["k=*/"]  # 如果没有指定 k，遍历所有 k 文件夹
     topo_dirs = as_topo_dirnames(spec.topos)
     level_dirs = as_str_levels(spec.levels)
 
@@ -116,24 +118,21 @@ def iter_group_pkls(spec: RawReadSpec) -> Iterable[str]:
         for p in sorted(glob.glob(pat)):
             yield p
 
-    if topo_dirs is not None:
-        for topo in topo_dirs:
-            if level_dirs is None:
-                pat = os.path.join(base, topo, "level_*", "results.pkl")
-                yield from _glob(pat)
-            else:
-                for lv in level_dirs:
-                    pat = os.path.join(base, topo, lv, "results.pkl")
-                    yield from _glob(pat)
-        return
+    # 遍历所有的 k 文件夹
+    for k_dir in k_dirs:
+        # 遍历 topo
+        topo_patterns = [f"{base}/{k_dir}/topo_*"] if topo_dirs is None else [f"{base}/{k_dir}/{topo}" for topo in
+                                                                              topo_dirs]
 
-    # topo not specified:
-    if level_dirs is None:
-        pat = os.path.join(base, "topo_*", "level_*", "results.pkl")
-        yield from _glob(pat)
-    else:
-        for lv in level_dirs:
-            pat = os.path.join(base, "topo_*", lv, "results.pkl")
+        # 遍历 level
+        if level_dirs is None:
+            level_patterns = [f"{topo}/level_*" for topo in topo_patterns]
+        else:
+            level_patterns = [f"{topo}/{lv}" for topo in topo_patterns for lv in level_dirs]
+
+        # 构建 glob 模式并遍历
+        for level_pattern in level_patterns:
+            pat = os.path.join(level_pattern, "results.pkl")
             yield from _glob(pat)
 
 
