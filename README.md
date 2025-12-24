@@ -151,6 +151,3 @@ If the combinatorial space is large, sampling is used up to `--max_size`.
 
 ---
 
-## License
-
-MIT (add a `LICENSE` file if needed).
