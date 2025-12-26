@@ -165,8 +165,8 @@ def proc_matrix_attr(record: Record, group_meta: Dict[str, Any], sample: Dict[st
     # Ybus
     Ybus, _, _ = pypower.makeYbus(baseMVA, bus, branch)  # nodal Y matrix
     Ybus = Ybus.tocsr()
-    row = Ybus.indices
-    col = np.repeat(np.arange(Ybus.shape[0]), np.diff(Ybus.indptr))
+    col = Ybus.indices
+    row = np.repeat(np.arange(Ybus.shape[0]), np.diff(Ybus.indptr))
     shared_incidence = np.stack([row, col], axis=0).astype(dtype=np.long) # All matrices share the same incidence
     Ybus_values = Ybus.data
     # G, Bpp
