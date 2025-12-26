@@ -175,18 +175,8 @@ def proc_matrix_attr(record: Record, group_meta: Dict[str, Any], sample: Dict[st
     Bp, _ = pypower.makeB(baseMVA, bus, branch, alg=2)  # nodal Bp matrix
     Bp = Bp.tocsr()
     Bp_values = Bp.data
-    # Jacobian
-    V = bus[:, VM] * np.exp(1j * bus[:, VA] * np.pi / 180)
-    dSbus_dv, dSbus_dΘ = pypower.dSbus_dV(Ybus, V)
-    dSbus_dv, dSbus_dΘ = dSbus_dv.tocsr(), dSbus_dΘ.tocsr()
 
-    dP_dv = np.real(dSbus_dv).data
-    dP_dΘ = np.real(dSbus_dΘ).data
-    dQ_dv = np.imag(dSbus_dv).data
-    dQ_dΘ = np.imag(dSbus_dΘ).data
-    J_values = np.stack([dP_dv, dP_dΘ, dQ_dv, dQ_dΘ], axis=1)
-
-    attr = np.concat([G_values[:, np.newaxis], Bpp_values[:, np.newaxis], J_values, Bp_values[:, np.newaxis]], axis=1)
+    attr = np.concat([G_values[:, np.newaxis], Bpp_values[:, np.newaxis], Bp_values[:, np.newaxis]], axis=1)
     record['matrix_attr'] = {"incidence": shared_incidence, "attr": attr}
 
 
