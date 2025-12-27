@@ -3,6 +3,7 @@ import argparse
 import os
 import pickle
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Any
 
 import numpy as np
@@ -44,6 +45,8 @@ def arg_parser():
     parser.add_argument('--keep_failed', action='store_true',
                         help="Keep failed PF samples (success=0). If not set, failed are dropped.")
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--cpu', type=int, default=1,
+                        help="Number of worker processes (#CPU). 1 means serial.")
 
     return parser.parse_args()
 
@@ -154,6 +157,88 @@ def _fmt_msecs(sec: float) -> str:
     """
     return f"{sec * 1e3:.2f} ms"
 
+def _process_topology(
+    topo_id: int,
+    outage_branch_rows: Tuple[int, ...],
+    args_dict: Dict[str, Any],
+    root_out: str,
+) -> Dict[str, Any]:
+    t_topo0 = time.perf_counter()
+    outage_str = ",".join(map(str, outage_branch_rows)) if outage_branch_rows else ""
+
+    produced = kept = failed = 0
+
+    rng = np.random.default_rng(int(args_dict["seed"]) + int(topo_id))
+
+    for lvl, n_samp in zip(args_dict["power_level"], args_dict["samples_per_level"]):
+        lvl_f = float(lvl)
+        n_samp = int(n_samp)
+
+        grp_dir = os.path.join(root_out, f"topo_{topo_id:06d}", f"level_{lvl_f:.3f}")
+        os.makedirs(grp_dir, exist_ok=True)
+
+        group_obj = {
+            "meta": {
+                "case": args_dict["case"],
+                "k": int(args_dict["k"]),
+                "seed": int(args_dict["seed"]),
+                "topo_id": int(topo_id),
+                "power_level": float(lvl_f),
+                "p_rand": float(args_dict["p_rand"]),
+                "v_rand": float(args_dict["v_rand"]),
+                "outage_branch_rows": outage_str,  # ppc['branch'] row ids
+                "n_requested": int(n_samp),
+            },
+            "samples": []
+        }
+
+        for j in range(n_samp):
+            produced += 1
+
+            base = get_pypower_case(args_dict["case"])
+            ppc = {
+                "baseMVA": float(base["baseMVA"]),
+                "bus": base["bus"].copy(),
+                "gen": base["gen"].copy(),
+                "branch": base["branch"].copy(),
+                **({"gencost": base["gencost"].copy()} if "gencost" in base else {}),
+            }
+
+            apply_branch_outages(ppc, outage_branch_rows)
+            disturb_ppc(ppc, lvl_f, float(args_dict["p_rand"]), float(args_dict["v_rand"]), rng)
+
+            results, success = run_ac_pf(ppc, verbose=bool(args_dict["verbose"]))
+
+            if not success:
+                failed += 1
+                if not bool(args_dict["keep_failed"]):
+                    continue
+
+            group_obj["samples"].append({
+                "sample_id": int(j),
+                "success": bool(success),
+                "results": results,
+            })
+            kept += 1
+
+        group_obj["meta"]["n_kept"] = int(len(group_obj["samples"]))
+        group_obj["meta"]["n_failed_dropped"] = int(n_samp - len(group_obj["samples"])) if not bool(args_dict["keep_failed"]) else 0
+
+        if len(group_obj["samples"]) == 0:
+            continue
+
+        save_path = os.path.join(grp_dir, "results.pkl")
+        dump_pickle(group_obj, save_path)
+
+    topo_elapsed = time.perf_counter() - t_topo0
+    return {
+        "topo_id": int(topo_id),
+        "produced": int(produced),
+        "kept": int(kept),
+        "failed": int(failed),
+        "elapsed": float(topo_elapsed),
+    }
+
 # ============================================================
 # 4) main
 # ============================================================
@@ -161,6 +246,8 @@ def main():
     args = arg_parser()
     assert len(args.power_level) == len(args.samples_per_level), \
         "power_level and samples_per_level must have same length."
+    if args.cpu < 1:
+        raise ValueError("--cpu must be >= 1")
 
     # topology set is produced here
     ov = overview(args)
@@ -205,83 +292,105 @@ def main():
     # ----------------------------
     pbar = tqdm(total=total_target, desc="Generating PF samples", unit="sample", dynamic_ncols=True)
 
-    for topo_id, outage_branch_rows in enumerate(topo_sets):
-        t_topo0 = time.perf_counter()
+    if args.cpu == 1:
+        for topo_id, outage_branch_rows in enumerate(topo_sets):
+            t_topo0 = time.perf_counter()
 
-        outage_str = ",".join(map(str, outage_branch_rows)) if outage_branch_rows else ""
+            outage_str = ",".join(map(str, outage_branch_rows)) if outage_branch_rows else ""
 
-        for lvl, n_samp in zip(args.power_level, args.samples_per_level):
-            lvl_f = float(lvl)
-            n_samp = int(n_samp)
+            for lvl, n_samp in zip(args.power_level, args.samples_per_level):
+                lvl_f = float(lvl)
+                n_samp = int(n_samp)
 
-            # case/k/topo_xxxxxx/level_1.000/
-            grp_dir = os.path.join(root_out, f"topo_{topo_id:06d}", f"level_{lvl_f:.3f}")
-            os.makedirs(grp_dir, exist_ok=True)
+                # case/k/topo_xxxxxx/level_1.000/
+                grp_dir = os.path.join(root_out, f"topo_{topo_id:06d}", f"level_{lvl_f:.3f}")
+                os.makedirs(grp_dir, exist_ok=True)
 
-            group_obj = {
-                "meta": {
-                    "case": args.case,
-                    "k": int(args.k),
-                    "seed": int(args.seed),
-                    "topo_id": int(topo_id),
-                    "power_level": float(lvl_f),
-                    "p_rand": float(args.p_rand),
-                    "v_rand": float(args.v_rand),
-                    "outage_branch_rows": outage_str,  # ppc['branch'] row ids
-                    "n_requested": int(n_samp),
-                },
-                "samples": []
-            }
-
-            for j in range(n_samp):
-                produced += 1
-
-                base = get_pypower_case(args.case)
-                ppc = {
-                    "baseMVA": float(base["baseMVA"]),
-                    "bus": base["bus"].copy(),
-                    "gen": base["gen"].copy(),
-                    "branch": base["branch"].copy(),
-                    **({"gencost": base["gencost"].copy()} if "gencost" in base else {}),
+                group_obj = {
+                    "meta": {
+                        "case": args.case,
+                        "k": int(args.k),
+                        "seed": int(args.seed),
+                        "topo_id": int(topo_id),
+                        "power_level": float(lvl_f),
+                        "p_rand": float(args.p_rand),
+                        "v_rand": float(args.v_rand),
+                        "outage_branch_rows": outage_str,  # ppc['branch'] row ids
+                        "n_requested": int(n_samp),
+                    },
+                    "samples": []
                 }
 
-                apply_branch_outages(ppc, outage_branch_rows)
-                disturb_ppc(ppc, lvl_f, float(args.p_rand), float(args.v_rand), rng)
+                for j in range(n_samp):
+                    produced += 1
 
-                results, success = run_ac_pf(ppc, verbose=args.verbose)
+                    base = get_pypower_case(args.case)
+                    ppc = {
+                        "baseMVA": float(base["baseMVA"]),
+                        "bus": base["bus"].copy(),
+                        "gen": base["gen"].copy(),
+                        "branch": base["branch"].copy(),
+                        **({"gencost": base["gencost"].copy()} if "gencost" in base else {}),
+                    }
 
-                if not success:
-                    failed += 1
-                    if not args.keep_failed:
-                        pbar.update(1)  # 这个样本也算“尝试生成”了，进度要走
-                        continue
+                    apply_branch_outages(ppc, outage_branch_rows)
+                    disturb_ppc(ppc, lvl_f, float(args.p_rand), float(args.v_rand), rng)
 
-                group_obj["samples"].append({
-                    "sample_id": int(j),
-                    "success": bool(success),
-                    "results": results,
-                })
-                kept += 1
+                    results, success = run_ac_pf(ppc, verbose=args.verbose)
 
-                pbar.update(1)
+                    if not success:
+                        failed += 1
+                        if not args.keep_failed:
+                            pbar.update(1)  # 这个样本也算“尝试生成”了，进度要走
+                            continue
 
-            group_obj["meta"]["n_kept"] = int(len(group_obj["samples"]))
-            group_obj["meta"]["n_failed_dropped"] = int(n_samp - len(group_obj["samples"])) if not args.keep_failed else 0
+                    group_obj["samples"].append({
+                        "sample_id": int(j),
+                        "success": bool(success),
+                        "results": results,
+                    })
+                    kept += 1
 
-            if len(group_obj["samples"]) == 0:
-                # 这一组全失败且未保留失败，则不落盘
-                continue
+                    pbar.update(1)
 
-            save_path = os.path.join(grp_dir, "results.pkl")
-            dump_pickle(group_obj, save_path)
+                group_obj["meta"]["n_kept"] = int(len(group_obj["samples"]))
+                group_obj["meta"]["n_failed_dropped"] = int(n_samp - len(group_obj["samples"])) if not args.keep_failed else 0
 
-            if args.verbose:
-                print(f"[SAVE] topo={topo_id:06d} level={lvl_f:.3f} -> {save_path} "
-                      f"(kept={len(group_obj['samples'])}/{n_samp})")
+                if len(group_obj["samples"]) == 0:
+                    # 这一组全失败且未保留失败，则不落盘
+                    continue
 
-        # 每种拓扑生成用时打印
-        topo_elapsed = time.perf_counter() - t_topo0
-        tqdm.write(f"[TOPO DONE] topo={topo_id:06d} elapsed={_fmt_secs(topo_elapsed)}")
+                save_path = os.path.join(grp_dir, "results.pkl")
+                dump_pickle(group_obj, save_path)
+
+                if args.verbose:
+                    print(f"[SAVE] topo={topo_id:06d} level={lvl_f:.3f} -> {save_path} "
+                          f"(kept={len(group_obj['samples'])}/{n_samp})")
+
+            # 每种拓扑生成用时打印
+            topo_elapsed = time.perf_counter() - t_topo0
+            tqdm.write(f"[TOPO DONE] topo={topo_id:06d} elapsed={_fmt_secs(topo_elapsed)}")
+    else:
+        args_dict = vars(args).copy()
+        with ProcessPoolExecutor(max_workers=int(args.cpu)) as executor:
+            futures = []
+            for topo_id, outage_branch_rows in enumerate(topo_sets):
+                futures.append(
+                    executor.submit(
+                        _process_topology,
+                        topo_id,
+                        outage_branch_rows,
+                        args_dict,
+                        root_out,
+                    )
+                )
+            for fut in as_completed(futures):
+                info = fut.result()
+                produced += info["produced"]
+                kept += info["kept"]
+                failed += info["failed"]
+                pbar.update(total_per_topo)
+                tqdm.write(f"[TOPO DONE] topo={info['topo_id']:06d} elapsed={_fmt_secs(info['elapsed'])}")
 
     pbar.close()
 
