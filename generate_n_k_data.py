@@ -114,6 +114,10 @@ def disturb_ppc(
         ug = rng.uniform(-1.0, 1.0, size=n_gen)
         gen[:, VG] *= (1.0 + ug * v_rand)
 
+    # Write updates back to the full generator table.
+    ppc["gen"][gen_mask, PG] = gen[:, PG]
+    ppc["gen"][gen_mask, VG] = gen[:, VG]
+
     return ppc
 
 
