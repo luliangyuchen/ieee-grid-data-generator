@@ -85,7 +85,7 @@ class RawReadSpec:
     """
     raw_root: str
     case: str
-    k: int
+    k: int = None
     topos: Optional[Sequence[Union[int, str]]] = None
     levels: Optional[Sequence[Union[float, str]]] = None
     # allow one extra layer if needed
@@ -93,8 +93,6 @@ class RawReadSpec:
 
     def base_dir(self) -> str:
         base = os.path.join(self.raw_root, self.case)
-        if self.k:
-            base = os.path.join(base, f"k={self.k}")
         if self.subdir:
             base = os.path.join(base, self.subdir)
         return base
@@ -109,7 +107,7 @@ def iter_group_pkls(spec: RawReadSpec) -> Iterable[str]:
     Allows filtering by topo, level, and k layer.
     """
     base = spec.base_dir()
-    k_dirs = [f"k={spec.k}"] if spec.k else ["k=*/"]  # 如果没有指定 k，遍历所有 k 文件夹
+    k_dirs = [f"k={spec.k}"] if spec.k is not None else ["k=*/"]  # 如果没有指定 k，遍历所有 k 文件夹
     topo_dirs = as_topo_dirnames(spec.topos)
     level_dirs = as_str_levels(spec.levels)
 

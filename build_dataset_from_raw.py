@@ -51,12 +51,13 @@ def arg_parser():
     # 添加参数
     parser.add_argument('--raw_root', type=str, default="./data/raw",
                         help="Path to the raw data directory")
-    parser.add_argument('--case', type=str,  default="IEEE39", help="The case name (e.g., IEEE39)")
-    parser.add_argument('--k', type=int, default=None, help="Topology type to specify")
+    parser.add_argument('--case', type=str,  default="IEEE39", help="The case name (e.g., IEEE39, IEEE300)")
+    parser.add_argument('--k', type=int, default=1, help="Topology type to specify")
+    parser.add_argument('--topos', type=int, nargs='+', default=None, help="Specific topology to specify")
     parser.add_argument('--levels', type=float, nargs='+', default=None, help="Power levels to specify")
     parser.add_argument('--max_groups', type=int, default=None, help="Maximum number of groups to read")
     parser.add_argument('--max_samples_per_group', type=int, default=None, help="Maximum number of samples per group")
-    parser.add_argument('--processors', type=str, nargs='+', default=["meta", "raw_results", "x", "y", "branch_attr", "matrix_attr"],
+    parser.add_argument('--processors', type=str, nargs='+', default=["meta", "x", "y", "branch_attr", "matrix_attr"],
                         help="List of processors to apply on each sample")
     parser.add_argument('--save_path', type=str, default="./data/ieee39.pkl", help="Path to save the processed dataset")
     parser.add_argument('--cpu', type=int, default=1, help="Number of worker processes (#CPU). 1 means serial.")
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     args = arg_parser()
 
     # 创建 RawReadSpec 实例
-    spec = RawReadSpec(raw_root=args.raw_root, case=args.case, k=args.k, levels=args.levels, subdir=None)
+    spec = RawReadSpec(raw_root=args.raw_root, case=args.case, k=args.k, levels=args.levels, subdir=None, topos=args.topos)
 
     # 调用函数处理数据集
     dataset = build_dataset_from_raw(spec, processors=args.processors, max_groups=args.max_groups,
